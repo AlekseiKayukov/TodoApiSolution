@@ -188,7 +188,7 @@ namespace TodoApi.Controllers
         /// <summary>
         /// Удаление задачи по ее идентификатору.
         /// </summary>
-        /// <param name="id">Id задачи для удаления.</param>
+        /// <param name="id">Идентификатор задачи для удаления.</param>
         /// <returns>Статус 204 No Content при успешном удаление,
         /// 404 - если задача не найдена.</returns>
         [HttpDelete("{id}")]
