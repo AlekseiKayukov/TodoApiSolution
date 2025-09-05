@@ -17,21 +17,14 @@ namespace TodoApi.Controllers
     [Route("api/[controller]")]
     public class TasksController : ControllerBase
     {
-        private readonly TodoDbContext _context;
-        private readonly IDistributedCache _cache;
         private readonly ITodoTaskService _taskService;
 
         /// <summary>
         /// Конструктор контроллера. Получает зависимости из DI.
         /// </summary>
-        /// <param name="context">Контекст БД (используется только для инфраструктуры, не для бизнес-логики).</param>
-        /// <param name="cache"><see cref="IDistributedCache"/> для кэширования ответов (используется сервисом).</param>
         /// <param name="taskService">Доменный сервис задач.</param>
-        public TasksController(TodoDbContext context, IDistributedCache cache,
-            ITodoTaskService taskService)
+        public TasksController(ITodoTaskService taskService)
         {
-            _context = context;
-            _cache = cache;
             _taskService = taskService;
         }
 

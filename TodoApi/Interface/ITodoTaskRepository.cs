@@ -54,5 +54,17 @@ namespace TodoApi.Interface
         /// <param name="status">Статус задачи.</param>
         /// <returns>Число задач с указанным статусом.</returns>
         Task<int> CountByStatusAsync(TodoTaskStatus status);
+
+        /// <summary>
+        /// Асинхронно сохраняет все изменения, внесённые в текущий контекст базы данных.
+        /// </summary>
+        /// <returns>
+        /// Возвращает количество записей, затронутых в базе данных.
+        /// </returns>
+        /// <remarks>
+        /// Этот метод вызывает метод SaveChangesAsync контекста данных EF Core.
+        /// Используется для применения внесённых изменений (добавления, обновления, удаления) к базе данных.
+        /// </remarks>
+        Task<int> SaveChangesAsync();
     }
 }

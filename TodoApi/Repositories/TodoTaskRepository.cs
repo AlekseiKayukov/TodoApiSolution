@@ -78,7 +78,7 @@ namespace TodoApi.Repositories
         public async Task AddAsync(TodoTask task)
         {
             _context.Tasks.Add(task);
-            await _context.SaveChangesAsync();
+            await SaveChangesAsync();
         }
 
         /// <summary>
@@ -88,7 +88,7 @@ namespace TodoApi.Repositories
         public async Task UpdateAsync(TodoTask task)
         {
             _context.Tasks.Update(task);
-            await _context.SaveChangesAsync();
+            await SaveChangesAsync();
         }
 
         /// <summary>
@@ -98,7 +98,7 @@ namespace TodoApi.Repositories
         public async Task RemoveAsync(TodoTask task)
         {
             _context.Tasks.Remove(task);
-            await _context.SaveChangesAsync();
+            await SaveChangesAsync();
         }
 
         /// <summary>
@@ -109,6 +109,21 @@ namespace TodoApi.Repositories
         public Task<int> CountByStatusAsync(TodoTaskStatus status)
         {
             return _context.Tasks.AsNoTracking().CountAsync(t => t.Status == status);
+        }
+
+        /// <summary>
+        /// Асинхронно сохраняет все изменения, внесённые в текущий контекст базы данных.
+        /// </summary>
+        /// <returns>
+        /// Возвращает количество записей, затронутых в базе данных.
+        /// </returns>
+        /// <remarks>
+        /// Этот метод вызывает метод SaveChangesAsync контекста данных EF Core.
+        /// Используется для применения внесённых изменений (добавления, обновления, удаления) к базе данных.
+        /// </remarks>
+        public async Task<int> SaveChangesAsync()
+        {
+            return await _context.SaveChangesAsync();
         }
     }
 }
