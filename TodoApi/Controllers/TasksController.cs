@@ -1,16 +1,17 @@
 ﻿using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Distributed;
-using System.Text.Json;
 using TodoApi.Data;
+using TodoApi.DTO;
+using TodoApi.Enum;
+using TodoApi.Interface;
 using TodoApi.Models;
-using TodoApi.Services;
 
 namespace TodoApi.Controllers
 {
     /// <summary>
     /// API контроллер для управления задачами.
-    /// Предоставляет CRUD операции, поиск, фильтрацию и пагинацию.
+    /// Выполняет CRUD, поиск, фильтрацию и пагинацию, возвращая DTO.
+    /// Вся бизнес-логика и работа с инфраструктурой делегируются в <see cref="ITodoTaskService"/>.
     /// </summary>
     [ApiController]
     [Route("api/[controller]")]
@@ -18,33 +19,30 @@ namespace TodoApi.Controllers
     {
         private readonly TodoDbContext _context;
         private readonly IDistributedCache _cache;
-        private readonly RedisCacheService _redisCacheService;
-        private readonly RabbitMqService _rabbitMqService;
+        private readonly ITodoTaskService _taskService;
 
         /// <summary>
-        /// Конструктор контроллера с внедрением DbContext и кеша.
+        /// Конструктор контроллера. Получает зависимости из DI.
         /// </summary>
-        /// <param name="context">Контекст БД TodoDbContext.</param>
-        /// <param name="cache">Redis-кеш</param>
-        /// <param name="redisCacheService">Очистка кеша по паттерну</param>
+        /// <param name="context">Контекст БД (используется только для инфраструктуры, не для бизнес-логики).</param>
+        /// <param name="cache"><see cref="IDistributedCache"/> для кэширования ответов (используется сервисом).</param>
+        /// <param name="taskService">Доменный сервис задач.</param>
         public TasksController(TodoDbContext context, IDistributedCache cache,
-            RedisCacheService redisCacheService, RabbitMqService rabbitMqService)
+            ITodoTaskService taskService)
         {
             _context = context;
             _cache = cache;
-            _redisCacheService = redisCacheService;
-            _rabbitMqService = rabbitMqService;
+            _taskService = taskService;
         }
 
         /// <summary>
-        /// Получение списка задач с опциональным поиском по названию,
-        /// фильтрацией по статусу и пагинацией.
+        /// Возвращает пагинированный список задач (DTO) с поиском и фильтрацией по статусу.
         /// </summary>
-        /// <param name="search">Текст для поиска в название задачи.</param>
-        /// <param name="status">Фильтр по статусу задачи (active или completed).</param>
-        /// <param name="page">Номер страницы для пагинации (по умолчанию 1).</param>
-        /// <param name="pageSize">Размер содержимого страницы (по умолчанию 10).</param>
-        /// <returns>Пагинированный список задач с информацией о количестве.</returns>
+        /// <param name="search">Поиск по названию (регистронезависимый).</param>
+        /// <param name="status">Фильтр по статусу (Active или Completed).</param>
+        /// <param name="page">Номер страницы (>= 1, по умолчанию 1).</param>
+        /// <param name="pageSize">Размер страницы (>= 1, по умолчанию 10).</param>
+        /// <returns><see cref="PagedResultDto{TodoTaskDto}"/> с метаданными пагинации и списком элементов.</returns>
         [HttpGet]
         public async Task<IActionResult> GetTasks(
             [FromQuery] string? search = null,
@@ -52,157 +50,74 @@ namespace TodoApi.Controllers
             [FromQuery] int page = 1,
             [FromQuery] int pageSize = 10)
         {
-            string cacheKey = $"tasks-{search}-{status}-{page}-{pageSize}";
-
-            var cachedData = await _cache.GetStringAsync(cacheKey);
-            if (cachedData != null)
-            {
-                var cachedResult = JsonSerializer.Deserialize<object>(cachedData);
-                return Ok(cachedResult);
-            }
-
-            var query = _context.Tasks.AsQueryable();
-
-            if (!string.IsNullOrEmpty(search))
-            {
-                query = query.Where(t => t.Title.ToLower().Contains(search.ToLower()));
-            }
-
-            if (status.HasValue)
-            {
-                query = query.Where(t => t.Status.Equals(status));
-            }
-
-            var totalItems = await query.CountAsync();
-
-            var tasks = await query
-                .OrderByDescending(t => t.CreatedAt)
-                .Skip((page - 1) * pageSize)
-                .Take(pageSize)
-                .ToListAsync();
-
-            var result = new
-            {
-                TotalItems = totalItems,
-                Page = page,
-                PageSize = pageSize,
-                Items = tasks
-            };
-
-            var serializedResult = JsonSerializer.Serialize(result);
-            var cacheOptions = new DistributedCacheEntryOptions
-            {
-                AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(5)
-            };
-            await _cache.SetStringAsync(cacheKey, serializedResult, cacheOptions);
-
+            var result = await _taskService.GetTasksAsync(search, status, page, pageSize);
             return Ok(result);
         }
 
         /// <summary>
-        /// Получение задачи по ее идентификатору.
+        /// Возвращает задачу (DTO) по идентификатору.
         /// </summary>
         /// <param name="id">Идентификатор задачи.</param>
-        /// <returns>Задача с соответствующим идентификатором, 
-        /// иначе статус 404, если не найдена.</returns>
+        /// <returns>200 с <see cref="TodoTaskDto"/>, либо 404 если не найдена.</returns>
         [HttpGet("{id}")]
         public async Task<IActionResult> GetTask(int id)
         {
-            string cacheKey = $"task-{id}";
-            var cachedData = await _cache.GetStringAsync(cacheKey);
-
-            if (cachedData != null)
-            {
-                var cachedResult = JsonSerializer.Deserialize<object>(cachedData);
-                return Ok(cachedResult);
-            }
-
-            var task = await _context.Tasks.FindAsync(id);
+            var task = await _taskService.GetTaskByIdAsync(id);
             if (task == null)
                 return NotFound();
-
-            var serializedResult = JsonSerializer.Serialize(task);
-            var cacheOptions = new DistributedCacheEntryOptions
-            {
-                AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(5)
-            };
-            await _cache.SetStringAsync(cacheKey,serializedResult, cacheOptions);
-
             return Ok(task);
         }
 
         /// <summary>
-        /// Создание новой задачи.
+        /// Создает новую задачу.
         /// </summary>
-        /// <param name="newTask">Объект задачи для создания.</param>
-        /// <returns>Созданная задача с присвоенным Id.</returns>
+        /// <param name="newTask">Доменная модель задачи.</param>
+        /// <returns>201 Созданная задача с присвоенными данными.</returns>
         [HttpPost]
         public async Task<IActionResult> CreateTask([FromBody] TodoTask newTask)
         {
-            newTask.CreatedAt = DateTime.UtcNow;
-            _context.Tasks.Add(newTask);
-            await _context.SaveChangesAsync();
+            var created = await _taskService.CreateTaskAsync(newTask);
 
-            await _redisCacheService.RemoveKeysByPatternAsync("task-*");
-            await _redisCacheService.RemoveKeysByPatternAsync("tasks-*");
+            var dto = new TodoTaskDto
+            {
+                Id = created.Id,
+                Title = created.Title,
+                Description = created.Description,
+                Status = created.Status,
+                CreatedAt = created.CreatedAt
+            };
 
-            return CreatedAtAction(nameof(GetTask), new { id = newTask.Id }, newTask);
+            return CreatedAtAction(nameof(GetTask), new { id = created.Id }, dto);
         }
 
         /// <summary>
-        /// Обновление существующей задачи по идентификатору.
+        /// Обновляет существующую задачу по идентификатору.
         /// </summary>
-        /// <param name="id">Идентификатор задачи для обновления.</param>
-        /// <param name="updateTask">Обновленный объект задачи.</param>
-        /// <returns>Статус 204 No Content при успешном обновление, 
-        /// 400 - если идентификатор не совпадает,
-        /// 404 - если задача не найдена.</returns>
+        /// <param name="id">Идентификатор задачи.</param>
+        /// <param name="updateTask">Новые значения полей задачи.</param>
+        /// <returns>204 No Content при успехе, 404 если задача не найдена.</returns>
         [HttpPut("{id}")]
         public async Task<IActionResult> UpdateTask(int id, 
             [FromBody] TodoTask updateTask)
         {
-            if (id != updateTask.Id)
-                return BadRequest();
-
-            var existingTask = await _context.Tasks.FindAsync(id);
-            if (existingTask == null)
+            var updated = await _taskService.UpdateTaskAsync(id, updateTask);
+            if (!updated)
                 return NotFound();
-
-            if (existingTask.Status != updateTask.Status)
-            {
-                _rabbitMqService.PublishTaskStatusChanged(updateTask.Id, 
-                    updateTask.Status.ToString().ToLower());
-            }
-
-            existingTask.Title = updateTask.Title;
-            existingTask.Description = updateTask.Description;
-            existingTask.Status = updateTask.Status;
-            await _context.SaveChangesAsync();
-
-            await _redisCacheService.RemoveKeysByPatternAsync("task-*");
-            await _redisCacheService.RemoveKeysByPatternAsync("tasks-*");
 
             return NoContent();
         }
 
         /// <summary>
-        /// Удаление задачи по ее идентификатору.
+        /// Удаляет задачу по идентификатору.
         /// </summary>
-        /// <param name="id">Идентификатор задачи для удаления.</param>
-        /// <returns>Статус 204 No Content при успешном удаление,
-        /// 404 - если задача не найдена.</returns>
+        /// <param name="id">Идентификатор задачи.</param>
+        /// <returns>204 No Content при успехе, 404 если задача не найдена.</returns>
         [HttpDelete("{id}")]
         public async Task<IActionResult> DeleteTask(int id)
         {
-            var existingTask = await _context.Tasks.FindAsync(id);
-            if (existingTask == null)
+            var deleted = await _taskService.DeleteTaskAsync(id);
+            if (!deleted)
                 return NotFound();
-
-            _context.Tasks.Remove(existingTask);
-            await _context.SaveChangesAsync();
-
-            await _redisCacheService.RemoveKeysByPatternAsync("task-*");
-            await _redisCacheService.RemoveKeysByPatternAsync("tasks-*");
 
             return NoContent();
         }

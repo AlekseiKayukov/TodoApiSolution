@@ -1,24 +1,9 @@
 ﻿using System.ComponentModel.DataAnnotations;
 using System.Text.Json.Serialization;
+using TodoApi.Enum;
 
 namespace TodoApi.Models
 {
-    /// <summary>
-    /// Статус задачи Todo.
-    /// </summary>
-    public enum TodoTaskStatus
-    {
-        /// <summary>
-        /// Задача активна.
-        /// </summary>
-        Active,
-
-        /// <summary>
-        /// Задача выполнена.
-        /// </summary>
-        Completed
-    }
-
     /// <summary>
     /// Модель задачи для управления задачами Todo.
     /// </summary>

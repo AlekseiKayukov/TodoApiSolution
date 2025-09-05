@@ -5,7 +5,8 @@ using System.Text.Json;
 namespace TodoApi.Services
 {
     /// <summary>
-    /// Сервис для работы с RabbitMQ, реализующий публикацию сообщений о событиях.
+    /// Сервис публикации событий в RabbitMQ через fanout‑exchange `task_events`.
+    /// Управляет соединением и каналом, реализует <see cref="IDisposable"/>.
     /// </summary>
     public class RabbitMqService : IDisposable
     {
@@ -14,10 +15,11 @@ namespace TodoApi.Services
 
         /// <summary>
         /// Инициализирует новый экземпляр <see cref="RabbitMqService"/>.
-        /// Создает подключение и открывает канал для взаимодействия с RabbitMQ.
+        /// Создаёт соединение и открывает канал для взаимодействия с RabbitMQ.
         /// </summary>
-        /// <param name="configuration">Конфигурация приложения с настройками
-        /// подключения к RabbitMQ.</param>
+        /// <param name="configuration">
+        /// Конфигурация приложения (ожидаются ключи: RabbitMq:Host, RabbitMq:Username, RabbitMq:Password).
+        /// </param>
         public RabbitMqService(IConfiguration configuration)
         {
             var factory = new ConnectionFactory()
@@ -36,9 +38,11 @@ namespace TodoApi.Services
         }
 
         /// <summary>
-        /// Публикует событие изменения статуса задачи в RabbitMQ.
+        /// Публикует событие изменения статуса задачи в exchange `task_events` (тип fanout).
+        /// Примечание: для fanout routingKey брокером игнорируется, сообщение доставляется всем привязанным очередям.
+        /// Сообщение помечается как persistent; для гарантированной доставки могут потребоваться publisher confirms/транзакции.
         /// </summary>
-        /// <param name="taskId">Идентификатор задачи, статус который изменился.</param>
+        /// <param name="taskId">Идентификатор задачи, статус которой изменился.</param>
         /// <param name="newStatus">Новый статус задачи.</param>
         public void PublishTaskStatusChanged(int taskId, string newStatus)
         {
@@ -57,6 +61,7 @@ namespace TodoApi.Services
 
         /// <summary>
         /// Освобождает ресурсы: закрывает канал и соединение с RabbitMQ.
+        /// Вызывать однократно из управляемого жизненного цикла; канал не потокобезопасен.
         /// </summary>
         public void Dispose()
         {

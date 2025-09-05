@@ -1,5 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using TodoApi.Services;
+using TodoApi.Interface;
+using TodoApi.Repositories;
 using TodoApi.Data;
 using StackExchange.Redis;
 
@@ -8,31 +10,31 @@ var redisConnection = builder.Configuration.GetSection("Redis")["Connection"];
 
 if (string.IsNullOrEmpty(redisConnection))
 {
-    throw new InvalidOperationException("Строка подключения Redis не настроена.");
+    throw new InvalidOperationException("РЎС‚СЂРѕРєР° РїРѕРґРєР»СЋС‡РµРЅРёСЏ Redis РЅРµ РЅР°СЃС‚СЂРѕРµРЅР°.");
 }
 
-// Настройка Kestrel для прослушивания порта 80
+/// РќР°СЃС‚СЂРѕР№РєР° Kestrel РґР»СЏ РїСЂРѕСЃР»СѓС€РёРІР°РЅРёСЏ РїРѕСЂС‚Р° 80
 builder.WebHost.ConfigureKestrel(options =>
 {
-    // HTTP REST API на 80 порту
+    /// HTTP REST API РЅР° 80 РїРѕСЂС‚Сѓ
     options.ListenAnyIP(80);
 
-    // gRPC на 5001 порту с HTTP/2
+    /// gRPC РЅР° 5001 РїРѕСЂС‚Сѓ СЃ HTTP/2
     options.ListenAnyIP(5001, listenOptions =>
     {
         listenOptions.Protocols = Microsoft.AspNetCore.Server.Kestrel.Core.HttpProtocols.Http2;
     });
 });
 
-// Регистрация Swagger
+/// Р РµРіРёСЃС‚СЂР°С†РёСЏ Swagger
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
-// Регистрация DbContext
+/// Р РµРіРёСЃС‚СЂР°С†РёСЏ DbContext
 builder.Services.AddDbContext<TodoDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("Postgres")));
 
-// Настройка конвертера для enum
+/// РќР°СЃС‚СЂРѕР№РєР° РєРѕРЅРІРµСЂС‚РµСЂР° РґР»СЏ enum
 builder.Services.AddControllers().AddJsonOptions(options =>
 {
     options.JsonSerializerOptions.Converters.Add(new
@@ -41,7 +43,7 @@ builder.Services.AddControllers().AddJsonOptions(options =>
     System.Text.Json.JsonNamingPolicy.CamelCase;
 });
 
-// Регистрация Redis cache
+/// Р РµРіРёСЃС‚СЂР°С†РёСЏ Redis cache
 builder.Services.AddStackExchangeRedisCache(options =>
 {
     options.Configuration = redisConnection;
@@ -49,24 +51,27 @@ builder.Services.AddStackExchangeRedisCache(options =>
 
 builder.Services.AddSingleton<RedisCacheService>();
 
-// Регистрация IConnectionMultiplexer
+/// Р РµРіРёСЃС‚СЂР°С†РёСЏ IConnectionMultiplexer
 builder.Services.AddSingleton<IConnectionMultiplexer>(sp =>
     ConnectionMultiplexer.Connect(redisConnection));
 
-// Регистрация RabbitMqService
+/// Р РµРіРёСЃС‚СЂР°С†РёСЏ RabbitMqService
 builder.Services.AddSingleton<RabbitMqService>();
 
-// Регистрация gRPC сервиса
+/// Р РµРіРёСЃС‚СЂР°С†РёСЏ gRPC СЃРµСЂРІРёСЃР°
 builder.Services.AddGrpc();
 builder.Services.AddGrpcReflection();
 
-// Добавление контроллеров
+/// Р”РѕР±Р°РІР»РµРЅРёРµ РєРѕРЅС‚СЂРѕР»Р»РµСЂРѕРІ
 builder.Services.AddControllers();
 
-// Добавление сервиса для миграции
+/// Р”РѕР±Р°РІР»РµРЅРёРµ СЃРµСЂРІРёСЃР° РґР»СЏ РјРёРіСЂР°С†РёРё
 builder.Services.AddScoped<MigrationService>();
 
-// Добавление создания документации
+builder.Services.AddScoped<ITodoTaskService, TodoTaskService>();
+builder.Services.AddScoped<ITodoTaskRepository, TodoTaskRepository>();
+
+/// Р”РѕР±Р°РІР»РµРЅРёРµ СЃРѕР·РґР°РЅРёСЏ РґРѕРєСѓРјРµРЅС‚Р°С†РёРё
 builder.Services.AddSwaggerGen(c =>
 {
     var xmlFile = $"{System.Reflection.Assembly.
@@ -84,7 +89,7 @@ if (app.Environment.IsDevelopment() || app.Environment.IsProduction())
     app.MapGrpcReflectionService();
 }
 
-// Автоматическое применение миграций с повторными попытками подключения к БД
+/// РђРІС‚РѕРјР°С‚РёС‡РµСЃРєРѕРµ РїСЂРёРјРµРЅРµРЅРёРµ РјРёРіСЂР°С†РёР№ СЃ РїРѕРІС‚РѕСЂРЅС‹РјРё РїРѕРїС‹С‚РєР°РјРё РїРѕРґРєР»СЋС‡РµРЅРёСЏ Рє Р‘Р”
 using var scope = app.Services.CreateScope();
 var migrationService = scope.ServiceProvider.GetRequiredService<MigrationService>();
 await migrationService.ApplyMigrationsWithRetryAsync();

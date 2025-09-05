@@ -1,44 +1,44 @@
 ﻿using TodoApi.Data;
 using Grpc.Core;
-using TodoApi.Models;
+using TodoApi.Enum;
 using TodoApi.Grpc;
 using Microsoft.EntityFrameworkCore;
+using TodoApi.Interface;
 
 namespace TodoApi.Services
 {
     /// <summary>
-    /// Реализация gRPC сервиса для предоставления статистики по задачам.
-    /// Класс наследует сгенерированный базовый класс TodoAnalyticsBase из proto файла.
+    /// Реализация gRPC‑сервиса аналитики задач.
+    /// Считает агрегаты по статусам через <see cref="ITodoTaskRepository"/>.
+    /// Наследуется от сгенерированного базового класса <see cref="TodoAnalytics.TodoAnalyticsBase"/>.
     /// </summary>
     public class TodoAnalyticsService : TodoAnalytics.TodoAnalyticsBase
     {
-        private readonly TodoDbContext _dbContext;
+        private readonly ITodoTaskRepository _repository;
 
         /// <summary>
-        /// Конструктор, получает контекст базы данных через внедрение зависимостей.
+        /// Создаёт экземпляр сервиса аналитики.
+        /// Получает зависимости через внедрение зависимостей.
         /// </summary>
-        /// <param name="dbContext">Контекст базы данных <see cref="TodoDbContext"/>.</param>
-        public TodoAnalyticsService(TodoDbContext dbContext)
+        /// <param name="repository">Репозиторий задач для выполнения агрегирующих запросов.</param>
+        public TodoAnalyticsService(ITodoTaskRepository repository)
         {
-            _dbContext = dbContext;
+            _repository = repository;
         }
 
         /// <summary>
-        /// Обработка вызова gRPC метода GetStats.
-        /// Асинхронно подсчитывает количество задач по статусам и возвращает
-        /// результат в объекте <see cref="StatsResponse"/>.
+        /// Обрабатывает gRPC‑вызов получения агрегированной статистики.
+        /// Асинхронно подсчитывает количество задач по статусам.
         /// </summary>
-        /// <param name="request">Запрос, пока пустой <see cref="StatsRequest"/>.</param>
+        /// <param name="request">Запрос (без параметров).</param>
         /// <param name="context">Контекст вызова gRPC.</param>
-        /// <returns>Ответ с количеством активных и завершенных задач.</returns>
+        /// <returns><see cref="StatsResponse"/> с количеством активных и завершённых задач.</returns>
         public override async Task<StatsResponse> GetStats(StatsRequest request,
             ServerCallContext context)
         {
-            int activeTaskCount = await _dbContext.Tasks.CountAsync(t =>
-                t.Status == TodoTaskStatus.Active);
+            int activeTaskCount = await _repository.CountByStatusAsync(TodoTaskStatus.Active);
 
-            int completedTasksCount = await _dbContext.Tasks.CountAsync(t =>
-                t.Status == TodoTaskStatus.Completed);
+            int completedTasksCount = await _repository.CountByStatusAsync(TodoTaskStatus.Completed);
 
             return new StatsResponse
             {
